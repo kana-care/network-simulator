@@ -2,6 +2,11 @@
 # network_simulator.sh - Network Quality Simulation Script
 # Usage: ./network_simulator.sh
 
+# Startup level (0-5)
+# 0 = disabled, 1-5 = quality levels
+# Set to 0 to start with normal network conditions
+STARTUP_LEVEL=3
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -10,7 +15,6 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 CONFIG_DIR="./config"
-STARTUP_CONFIG="./startup.conf"
 
 # Network interface (change if needed)
 INTERFACE="wlan0"
@@ -21,19 +25,6 @@ show_header() {
     echo -e "${BLUE}  Network Quality Simulator${NC}"
     echo -e "${BLUE}================================${NC}"
     echo ""
-}
-
-# Function to load startup configuration
-load_startup_config() {
-    if [ -f "$STARTUP_CONFIG" ]; then
-        source "$STARTUP_CONFIG"
-        echo -e "${GREEN}✓ Loaded startup configuration${NC}"
-    else
-        echo -e "${YELLOW}⚠ Startup config not found: $STARTUP_CONFIG${NC}"
-        echo -e "${YELLOW}  Using defaults: INTERFACE=lo, STARTUP_LEVEL=0${NC}"
-        INTERFACE="lo"
-        STARTUP_LEVEL=0
-    fi
 }
 
 # Function to load level configuration
@@ -154,13 +145,6 @@ show_status() {
     tc -s qdisc show dev $INTERFACE
 }
 
-# Function to reload configurations
-reload_configs() {
-    echo -e "${YELLOW}Reloading all configurations...${NC}"
-    load_startup_config
-    echo -e "${GREEN}✓ Configurations reloaded${NC}"
-}
-
 # Main script execution
 main() {
     # Check if running as root for tc commands
@@ -169,8 +153,6 @@ main() {
         echo "Please run with: sudo $0"
         exit 1
     fi
-
-    load_startup_config
 
     show_header
 
