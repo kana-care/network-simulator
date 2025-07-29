@@ -9,6 +9,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+CONFIG_DIR="./config"
+STARTUP_CONFIG="./startup.conf"
+
 # Network interface (change if needed)
 INTERFACE="wlan0"
 
@@ -18,6 +21,35 @@ show_header() {
     echo -e "${BLUE}  Network Quality Simulator${NC}"
     echo -e "${BLUE}================================${NC}"
     echo ""
+}
+
+# Function to load startup configuration
+load_startup_config() {
+    if [ -f "$STARTUP_CONFIG" ]; then
+        source "$STARTUP_CONFIG"
+        echo -e "${GREEN}✓ Loaded startup configuration${NC}"
+    else
+        echo -e "${YELLOW}⚠ Startup config not found: $STARTUP_CONFIG${NC}"
+        echo -e "${YELLOW}  Using defaults: INTERFACE=lo, STARTUP_LEVEL=0${NC}"
+        INTERFACE="lo"
+        STARTUP_LEVEL=0
+    fi
+}
+
+# Function to load level configuration
+load_level_config() {
+    local level=$1
+    local config_file="$CONFIG_DIR/level_${level}.conf"
+    
+    if [ ! -f "$config_file" ]; then
+        echo -e "${RED}✗ Configuration file not found: $config_file${NC}"
+        return 1
+    fi
+    
+    # Source the configuration file
+    source "$config_file"
+    echo -e "${GREEN}✓ Loaded level $level configuration from $config_file${NC}"
+    return 0
 }
 
 # Function to display menu
@@ -42,119 +74,74 @@ cleanup_tc() {
 # Function to display current parameters
 show_parameters() {
     local level=$1
-    local delay_base=$2
-    local delay_jitter=$3
-    local delay_corr=$4
-    local loss_pct=$5
-    local loss_corr=$6
-    local corrupt_pct=$7
-    local duplicate_pct=$8
-    local reorder_gap=$9
-    local reorder_chance=${10}
-    local reorder_corr=${11}
-    local bandwidth=${12}
-
+    
     echo ""
-    echo -e "${BLUE}Applied Network Quality Level $level:${NC}"
+    echo -e "${BLUE}Applied Network Quality Level $level on $INTERFACE:${NC}"
     echo -e "${YELLOW}┌─────────────────────────────────────────┐${NC}"
     echo -e "${YELLOW}│ Network Parameters                      │${NC}"
     echo -e "${YELLOW}├─────────────────────────────────────────┤${NC}"
-    printf "${YELLOW}│${NC} %-20s: %s\n" "Base Delay" "${delay_base}ms"
-    printf "${YELLOW}│${NC} %-20s: ±%s\n" "Jitter" "${delay_jitter}ms"
-    printf "${YELLOW}│${NC} %-20s: %s%%\n" "Delay Correlation" "$delay_corr"
-    printf "${YELLOW}│${NC} %-20s: %s%% (corr: %s%%)\n" "Packet Loss" "$loss_pct" "$loss_corr"
-    printf "${YELLOW}│${NC} %-20s: %s%%\n" "Corruption" "$corrupt_pct"
-    printf "${YELLOW}│${NC} %-20s: %s%%\n" "Duplication" "$duplicate_pct"
-    printf "${YELLOW}│${NC} %-20s: every %s pkts, %s%% chance (corr: %s%%)\n" "Reordering" "$reorder_gap" "$reorder_chance" "$reorder_corr"
-    printf "${YELLOW}│${NC} %-20s: %s\n" "Bandwidth Limit" "$bandwidth"
+    printf "${YELLOW}│${NC} %-20s: %s\n" "Interface" "$INTERFACE"
+    printf "${YELLOW}│${NC} %-20s: %s\n" "Base Delay" "${DELAY_BASE}ms"
+    printf "${YELLOW}│${NC} %-20s: ±%s\n" "Jitter" "${DELAY_JITTER}ms"
+    printf "${YELLOW}│${NC} %-20s: %s%%\n" "Delay Correlation" "$DELAY_CORRELATION"
+    printf "${YELLOW}│${NC} %-20s: %s%% (corr: %s%%)\n" "Packet Loss" "$LOSS_PERCENTAGE" "$LOSS_CORRELATION"
+    printf "${YELLOW}│${NC} %-20s: %s%%\n" "Corruption" "$CORRUPT_PERCENTAGE"
+    printf "${YELLOW}│${NC} %-20s: %s%%\n" "Duplication" "$DUPLICATE_PERCENTAGE"
+    printf "${YELLOW}│${NC} %-20s: every %s pkts, %s%% chance (corr: %s%%)\n" "Reordering" "$REORDER_GAP" "$REORDER_CHANCE" "$REORDER_CORRELATION"
+    printf "${YELLOW}│${NC} %-20s: %s\n" "Bandwidth Limit" "$BANDWIDTH_LIMIT"
     echo -e "${YELLOW}└─────────────────────────────────────────┘${NC}"
 }
 
 # Function to apply network configuration
 apply_config() {
     local level=$1
-    local delay_base=$2
-    local delay_jitter=$3
-    local delay_corr=$4
-    local loss_pct=$5
-    local loss_corr=$6
-    local corrupt_pct=$7
-    local duplicate_pct=$8
-    local reorder_gap=$9
-    local reorder_chance=${10}
-    local reorder_corr=${11}
-    local bandwidth=${12}
-
+    
+    # Load configuration for this level
+    if ! load_level_config $level; then
+        return 1
+    fi
+    
     # Clean up existing rules
     cleanup_tc
+    
+    if [ "$level" -eq 0 ]; then
+        echo -e "${GREEN}✓ Network simulation disabled. Normal network conditions restored.${NC}"
+        return 0
+    fi
 
     # Apply netem qdisc with network impairments
-    sudo tc qdisc add dev $INTERFACE root handle 1: netem \
-        delay ${delay_base}ms ${delay_jitter}ms ${delay_corr}% distribution normal \
-        loss ${loss_pct}% ${loss_corr}% \
-        corrupt ${corrupt_pct}% \
-        duplicate ${duplicate_pct}% \
-        reorder ${reorder_chance}% ${reorder_corr}% gap ${reorder_gap}
+    tc qdisc add dev $INTERFACE root handle 1: netem \
+        delay ${DELAY_BASE}ms ${DELAY_JITTER}ms ${DELAY_CORRELATION}% distribution normal \
+        loss ${LOSS_PERCENTAGE}% ${LOSS_CORRELATION}% \
+        corrupt ${CORRUPT_PERCENTAGE}% \
+        duplicate ${DUPLICATE_PERCENTAGE}% \
+        reorder ${REORDER_CHANCE}% ${REORDER_CORRELATION}% gap ${REORDER_GAP}
 
     # Add bandwidth limitation if specified
-    if [ "$bandwidth" != "unlimited" ]; then
-        # Calculate burst size (typically 1/8 of rate or minimum 32kbit)
-        local rate_num=$(echo $bandwidth | sed 's/[^0-9]//g')
+    if [ "$BANDWIDTH_LIMIT" != "unlimited" ]; then
+        # Calculate burst size
+        local rate_num=$(echo $BANDWIDTH_LIMIT | sed 's/[^0-9]//g')
         local burst_size=$((rate_num * 1024 / 8))
         if [ $burst_size -lt 32768 ]; then
             burst_size=32768
         fi
         local burst="${burst_size}bit"
-
+        
         # Calculate latency based on delay
-        local tbf_latency=$((delay_base + delay_jitter))
+        local tbf_latency=$((DELAY_BASE + DELAY_JITTER))
         if [ $tbf_latency -lt 100 ]; then
             tbf_latency=100
         fi
 
-        sudo tc qdisc add dev $INTERFACE parent 1:1 handle 10: tbf \
-            rate $bandwidth burst $burst latency ${tbf_latency}ms
+        tc qdisc add dev $INTERFACE parent 1:1 handle 10: tbf \
+            rate $BANDWIDTH_LIMIT burst $burst latency ${tbf_latency}ms
     fi
 
     # Display applied parameters
-    show_parameters $level $delay_base $delay_jitter $delay_corr $loss_pct $loss_corr \
-                   $corrupt_pct $duplicate_pct $reorder_gap $reorder_chance $reorder_corr $bandwidth
+    show_parameters $level
 
     echo ""
     echo -e "${GREEN}✓ Network quality level $level applied successfully!${NC}"
-}
-
-# numbers represent
-# 1:   level
-# 2-4: ping	base, jitter, correlation
-# 5-6: loss	percentage, correlation
-# 7:   corrupt	percentage
-# 8:   clone	percentage
-# 9-11 reorder	gap, chance, correlation
-# 12   bandwidth
-# Function to configure Level 1 - Slightly reduced quality
-config_level_1() {
-    apply_config 1 50 20 15 0.1 10 0.01 0.1 10 0.5 25 "50mbit"
-}
-
-# Function to configure Level 2 - Quite bad quality
-config_level_2() {
-    apply_config 2 150 50 20 0.5 15 0.05 0.3 8 1 30 "20mbit"
-}
-
-# Function to configure Level 3 - Bad quality
-config_level_3() {
-    apply_config 3 300 100 25 1.5 20 0.1 0.5 6 2 35 "10mbit"
-}
-
-# Function to configure Level 4 - Terrible quality
-config_level_4() {
-    apply_config 4 500 200 30 3 25 0.2 1 5 3 40 "5mbit"
-}
-
-# Function to configure Level 5 - Almost not usable
-config_level_5() {
-    apply_config 5 800 400 35 5 30 0.5 2 4 5 50 "2mbit"
 }
 
 # Function to show current tc status
@@ -167,6 +154,13 @@ show_status() {
     tc -s qdisc show dev $INTERFACE
 }
 
+# Function to reload configurations
+reload_configs() {
+    echo -e "${YELLOW}Reloading all configurations...${NC}"
+    load_startup_config
+    echo -e "${GREEN}✓ Configurations reloaded${NC}"
+}
+
 # Main script execution
 main() {
     # Check if running as root for tc commands
@@ -176,34 +170,24 @@ main() {
         exit 1
     fi
 
-    config_level_2
+    load_startup_config
 
     show_header
+
+    # If STARTUP_LEVEL is set and not 0, apply it automatically
+    if [ -n "$STARTUP_LEVEL" ] && [ "$STARTUP_LEVEL" -ne 0 ]; then
+        echo -e "${BLUE}Auto-applying startup level: $STARTUP_LEVEL${NC}"
+        apply_config $STARTUP_LEVEL
+        echo ""
+    fi
 
     while true; do
         show_menu
         read -r choice
 
         case $choice in
-            0)
-                cleanup_tc
-                echo ""
-                echo -e "${GREEN}✓ Network simulation disabled. Normal network conditions restored.${NC}"
-                ;;
-            1)
-                config_level_1
-                ;;
-            2)
-                config_level_2
-                ;;
-            3)
-                config_level_3
-                ;;
-            4)
-                config_level_4
-                ;;
-            5)
-                config_level_5
+            0|1|2|3|4|5)
+                apply_config $choice
                 ;;
             "status"|"s")
                 show_status
