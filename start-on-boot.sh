@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Hardcoded values
-SCRIPT_PATH="/home/kana/network-simulator.sh"
+SCRIPT_PATH="$PWD/network-simulator.sh"
 SERVICE_NAME="network-simulator"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
